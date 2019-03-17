@@ -7,26 +7,27 @@ import math, copy, time
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 
+
 # NOTE ==============================================
 #
 # Fill in code for every method which has a TODO
 #
 # Your implementation should use the contract (inputs
-# and outputs) given for each model, because that is
-# what the main script expects. If you modify the contract,
-# you must justify that choice, note it in your report, and notify the TAs
+# and outputs) given for each model, because that is 
+# what the main script expects. If you modify the contract, 
+# you must justify that choice, note it in your report, and notify the TAs 
 # so that we run the correct code.
 #
 # You may modify the internals of the RNN and GRU classes
 # as much as you like, except you must keep the methods
 # in each (init_weights_uniform, init_hidden, and forward)
-# Using nn.Module and "forward" tells torch which
+# Using nn.Module and "forward" tells torch which 
 # parameters are involved in the forward pass, so that it
 # can correctly (automatically) set up the backward pass.
 #
 # You should not modify the interals of the Transformer
 # except where indicated to implement the multi-head
-# attention.
+# attention. 
 
 
 def clones(module, N):
@@ -41,6 +42,7 @@ def clones(module, N):
         a ModuleList with the copies of the module (the ModuleList is itself also a module)
     """
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
 
 # Problem 1
 class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities.
@@ -348,210 +350,55 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
         samples = None
         return samples
 
-# Problem 3
-##############################################################################
+
+# class LSTM(nn.Module):
+#     def __init__(self, emb_size, hidden_size, seq_len, batch_size, vocab_size, num_layers, dp_keep_prob):
+#         super(GRU, self).__init__()
+#         self.emb_size = emb_size
+#         self.hidden_size = hidden_size
+#         self.seq_len = seq_len
+#         self.batch_size = batch_size
+#         self.vocab_size = vocab_size
+#         self.num_layers = num_layers
+#         self.dp_keep_prob = dp_keep_prob
 #
-# Code for the Transformer model
+#         # word embedding
+#         self.embedding = WordEmbedding(emb_size, vocab_size)
 #
-##############################################################################
-
-"""
-Implement the MultiHeadedAttention module of the transformer architecture.
-All other necessary modules have already been implemented for you.
-
-We're building a transfomer architecture for next-step prediction tasks, and
-applying it to sequential language modelling. We use a binary "mask" to specify
-which time-steps the model can use for the current prediction.
-This ensures that the model only attends to previous time-steps.
-
-The model first encodes inputs using the concatenation of a learned WordEmbedding
-and a (in our case, hard-coded) PositionalEncoding.
-The word embedding maps a word's one-hot encoding into a dense real vector.
-The positional encoding 'tags' each element of an input sequence with a code that
-identifies it's position (i.e. time-step).
-
-These encodings of the inputs are then transformed repeatedly using multiple
-copies of a TransformerBlock.
-This block consists of an application of MultiHeadedAttention, followed by a
-standard MLP; the MLP applies *the same* mapping at every position.
-Both the attention and the MLP are applied with Resnet-style skip connections,
-and layer normalization.
-
-The complete model consists of the embeddings, the stacked transformer blocks,
-and a linear layer followed by a softmax.
-"""
-
-#This code has been modified from an open-source project, by David Krueger.
-#The original license is included below:
-#MIT License
+#         # hidden layers:
+#         self.hidden_layers = nn.ModuleList()
+#         for i in range(num_layers):
+#             if i == 0:
+#                 self.hidden_layers.append(nn.Linear(emb_size + hidden_size, 4 * hidden_size))
+#             else:
+#                 self.hidden_layers.append(nn.Linear(2 * hidden_size, 4 * hidden_size))
 #
-#Copyright (c) 2018 Alexander Rush
+#     def init_hidden(self):
+#         return torch.zeros(self.num_layers, self.batch_size, self.hidden_size)
 #
-#Permission is hereby granted, free of charge, to any person obtaining a copy
-#of this software and associated documentation files (the "Software"), to deal
-#in the Software without restriction, including without limitation the rights
-#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-#copies of the Software, and to permit persons to whom the Software is
-#furnished to do so, subject to the following conditions:
+#     def forward(self, inputs, hidden):
+#         logits = []
+#         embeddings = self.embedding(inputs)
+#         for i in range(self.seq_len):
+#             for n in range(self.num_layers):
+#                 if n == 0:
+#                     layer_inpt = embeddings[i]
+#                 else:
+#                     layer_inpt = hidden_gate_out
+#                 hidden_gate_out = self.hidden_layers[n](torch.cat([layer_inpt, hidden[n]], dim=1))  # input, output, forget gates
+#                 input_gate = F.sigmoid(hidden_gate_out[:self.hidden_size])
+#                 forget_gate = F.sigmoid(hidden_gate_out[self.hidden_size: 2 * self.hidden_size])
+#                 output_gate = F.sigmoid(hidden_gate_out[2 * self.hidden_size: 3 * self.hidden_size])
+#                 cell_context = F.tanh(hidden_gate_out[3 * self.hidden_size:])
+#                 cell_state =
+#                 hidden[n] = hidden_gate_out
+#             output = self.output_layer(hidden_gate_out)
+#             logits.append(output)
 #
-#The above copyright notice and this permission notice shall be included in all
-#copies or substantial portions of the Software.
-#
-#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-#IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-#FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-#AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-#LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-#OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-#SOFTWARE.
+#         logits = torch.cat(logits, dim=0)
+#         return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
 
-
-
-#----------------------------------------------------------------------------------
-
-# TODO: implement this class
-class MultiHeadedAttention(nn.Module):
-    def __init__(self, n_heads, n_units, dropout=0.1):
-        """
-        n_heads: the number of attention heads
-        n_units: the number of output units
-        dropout: probability of DROPPING units
-        """
-        super(MultiHeadedAttention, self).__init__()
-        # This sets the size of the keys, values, and queries (self.d_k) to all
-        # be equal to the number of output units divided by the number of heads.
-        self.d_k = n_units // n_heads
-        self.sqrt_d_k = math.sqrt(self.d_k)
-        # This requires the number of n_heads to evenly divide n_units.
-        assert n_units % n_heads == 0
-        self.n_units = n_units
-        self.n_heads = n_heads
-
-        # TODO: create/initialize any necessary parameters or layers
-        # Initialize all weights and biases uniformly in the range [-k, k],
-        # where k is the square root of 1/n_units.
-        # Note: the only Pytorch modules you are allowed to use are nn.Linear
-        # and nn.Dropout
-
-        # self.query_map  = nn.Linear(n_units , n_units)
-        # self.value_map  = nn.Linear(n_units , n_units)
-        # self.key_map    = nn.Linear(n_units , n_units)
-        # self.dropout    = nn.Dropout(dropout)
-        # self.output_map = nn.Linear(n_units , n_units)
-
-        self.W_Q = nn.Linear(self.n_units, self.n_units)
-        self.W_K = nn.Linear(self.n_units, self.n_units)
-        self.W_V = nn.Linear(self.n_units, self.n_units)
-        self.W_O = nn.Linear(self.n_units, self.n_units)
-        self.dropout = nn.Dropout(p=dropout)
-
-        # self.init_range = torch.rsqrt( torch.tensor([n_units]).float() )
-        self.init_range = 1/math.sqrt( n_units )
-        def init_map_layer( layer, k ):
-            with torch.no_grad() :
-                layer.bias.data.fill_(0.0)
-                layer.weight.data.uniform_( -k , k )
-
-        # init_map_layer( self.query_map  , self.init_range )
-        # init_map_layer( self.value_map  , self.init_range )
-        # init_map_layer( self.key_map    , self.init_range )
-        # init_map_layer( self.output_map , self.init_range )
-
-        init_map_layer( self.W_Q , self.init_range )
-        init_map_layer( self.W_K , self.init_range )
-        init_map_layer( self.W_V , self.init_range )
-        init_map_layer( self.W_O , self.init_range )
-
-    """
-    def forward(self, query, key, value, mask=None):
-        # TODO: implement the masked multi-head attention.
-        # query, key, and value all have size: (batch_size, seq_len, self.n_units)
-        # mask has size: (batch_size, seq_len, seq_len)
-        # As described in the .tex, apply input masking to the softmax
-        # generating the "attention values" (i.e. A_i in the .tex)
-        # Also apply dropout to the attention values.
-
-        batch_size = query.size(0)
-        seq_lenght = query.size(1)
-
-        # abreviations
-        bs   = batch_size
-        sl   = seq_lenght
-        nh   = self.n_heads
-        dk   = self.d_k
-        dm   = self.n_units # dm stands for d_model
-
-        # compute mapped queries, keys and values
-        query = self.query_map( query )
-        key   = self.key_map( key )
-        value = self.value_map( value )
-
-        # arrange to form Q_i, K_i, V_i
-        query = query.view( bs, nh, sl, dk )
-        key   =   key.view( bs, nh, sl, dk )
-        value = value.view( bs, nh, sl, dk )
-
-        # compute pre-attention coefficients, i.e. input of the softmax
-        # attn_scale = torch.rsqrt(torch.tensor([ dk ]).float() ).to(device) # scaling factor
-        attn_scale = 1.0/math.sqrt(dk)
-        attention  = attn_scale * torch.matmul( query , key.transpose(-1,-2) )
-
-        # apply the mask to the pre-attentions
-        # at this point, Attention has size ( bs, nh, sl, sl )
-        #             and the mask has size ( bs,     sl, sl )
-        # so the mask must be unsqueezed to fit the Attention
-        if mask is not None:
-            big_M = -1.0e9
-            attention.masked_fill( 1 - mask.unsqueeze(1), big_M)
-
-        # Compute the attention coefficients
-        # softmax is applied in dimension that correspond semanticaly to the keys
-        # to be explicit, the dimension of Attention correspond to :
-        #   dim 0 : batch dimension
-        #   dim 1 : head  dimension
-        #   dim 2 : query dimension
-        #   dim 3 : key   dimension
-        attention = F.softmax( attention , dim=-1)
-
-        # apply dropout to the Attention and compute output
-        attention = self.dropout( attention)
-        output    = torch.matmul( attention , value )
-
-        # output has size ( bs, nh, sl, dk )
-        # we concatenate along head dimension to reshape it to ( bs, sl, dk*nh )
-        # and apply a linear transformation
-        output   = output.transpose(1,2).contiguous()
-        output   = output.view( bs, sl , dm )
-        output   = self.output_map( output )
-
-        return output # size: (batch_size, seq_len, self.n_units)
-        """
-
-    def forward(self, query, key, value, mask=None):
-        # TODO: implement the masked multi-head attention.
-        # query, key, and value all have size: (batch_size, seq_len, self.n_units)
-        # mask has size: (batch_size, seq_len, seq_len)
-        # As described in the .tex, apply input masking to the softmax
-        # generating the "attention values" (i.e. A_i in the .tex)
-        # Also apply dropout to the attention values.
-        batch_size = query.size(0)
-        seq_len    = query.size(1)
-        Q = self.W_Q(query).view((batch_size, seq_len, self.n_heads, self.d_k))
-        K = self.W_K( key ).view((batch_size, seq_len, self.n_heads, self.d_k))
-        V = self.W_V(value).view((batch_size, seq_len, self.n_heads, self.d_k))
-        relev_prob = torch.einsum('bshk,bqhk->bhsq', Q, K) / self.sqrt_d_k
-        A = self.dropout(self.softmax_stable(relev_prob, mask))
-        H = torch.einsum('bhsq,bqhk->bshk', A, V).contiguous()
-        H_concat = H.view((batch_size, seq_len, self.n_units))
-        return self.W_O(H_concat) # size: (batch_size, seq_len, self.n_units)
-
-    def softmax_stable(self, x, s):
-        # more numerical stable
-        #x_tilde = torch.add( torch.einsum('bhsq,bsq->bhsq', x , s) , -1e9 * (1-s) )
-        s = s.unsqueeze(1)
-        x_tilde = x.masked_fill(s == 0, -1e9)
-        return nn.functional.softmax(x_tilde, dim=-1)
-#----------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------
 # The encodings of elements of the input sequence
 
 class WordEmbedding(nn.Module):
@@ -561,7 +408,7 @@ class WordEmbedding(nn.Module):
         self.n_units = n_units
 
     def forward(self, x):
-        #print (x)
+        # print (x)
         return self.lut(x) * math.sqrt(self.n_units)
 
 
@@ -581,20 +428,15 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + Variable(self.pe[:, :x.size(1)],
-                         requires_grad=False)
+        x = x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
         return self.dropout(x)
 
 
-
-#----------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------
 # The TransformerBlock and the full Transformer
 
 
 class TransformerBlock(nn.Module):
-    """
-    This will be called on the TransformerBlock (below) to create a stack.
-    """
     def __init__(self, size, self_attn, feed_forward, dropout):
         super(TransformerBlock, self).__init__()
         self.size = size
@@ -603,12 +445,16 @@ class TransformerBlock(nn.Module):
         self.sublayer = clones(ResidualSkipConnectionWithLayerNorm(size, dropout), 2)
 
     def forward(self, x, mask):
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask)) # apply the self-attention
-        return self.sublayer[1](x, self.feed_forward) # apply the position-wise MLP
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask))  # apply the self-attention
+        return self.sublayer[1](x, self.feed_forward)  # apply the position-wise MLP
 
 
 class TransformerStack(nn.Module):
-    def __init__(self, layer, n_blocks): # layer will be TransformerBlock (above)
+    """
+    This will be called on the TransformerBlock (above) to create a stack.
+    """
+
+    def __init__(self, layer, n_blocks):  # layer will be TransformerBlock (below)
         super(TransformerStack, self).__init__()
         self.layers = clones(layer, n_blocks)
         self.norm = LayerNorm(layer.size)
@@ -630,29 +476,28 @@ class FullTransformer(nn.Module):
         embeddings = self.embedding(input_sequence)
         return F.log_softmax(self.output_layer(self.transformer_stack(embeddings, mask)), dim=-1)
 
-# originaly n_heads=16
-def make_model(vocab_size, n_blocks=6,
-               n_units=512, n_heads=8, dropout=0.1):
-    "Helper: Construct a model from hyperparameters."
-    c = copy.deepcopy
-    attn = MultiHeadedAttention(n_heads, n_units)
-    ff = MLP(n_units, dropout)
-    position = PositionalEncoding(n_units, dropout)
-    model = FullTransformer(
-        transformer_stack=TransformerStack(TransformerBlock(n_units, c(attn), c(ff), dropout), n_blocks),
-        embedding=nn.Sequential(WordEmbedding(n_units, vocab_size), c(position)),
-        n_units=n_units,
-        vocab_size=vocab_size
-        )
 
-    # Initialize parameters with Glorot / fan_avg.
-    for p in model.parameters():
-        if p.dim() > 1:
-            nn.init.xavier_uniform_(p)
-    return model
+# def make_model(vocab_size, n_blocks=6, n_units=512, n_heads=16, dropout=0.1):
+#     "Helper: Construct a model from hyperparameters."
+#     c = copy.deepcopy
+#     attn = MultiHeadedAttention(n_heads, n_units)
+#     ff = MLP(n_units, dropout)
+#     position = PositionalEncoding(n_units, dropout)
+#     model = FullTransformer(
+#         transformer_stack=TransformerStack(TransformerBlock(n_units, c(attn), c(ff), dropout), n_blocks),
+#         embedding=nn.Sequential(WordEmbedding(n_units, vocab_size), c(position)),
+#         n_units=n_units,
+#         vocab_size=vocab_size
+#         )
+#
+#     # Initialize parameters with Glorot / fan_avg.
+#     for p in model.parameters():
+#         if p.dim() > 1:
+#             nn.init.xavier_uniform_(p)
+#     return model
 
 
-#----------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------
 # Data processing
 
 def subsequent_mask(size):
@@ -661,8 +506,10 @@ def subsequent_mask(size):
     subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
     return torch.from_numpy(subsequent_mask) == 0
 
+
 class Batch:
     "Object for holding a batch of data with mask during training."
+
     def __init__(self, x, pad=0):
         self.data = x
         self.mask = self.make_mask(self.data, pad)
@@ -676,11 +523,12 @@ class Batch:
         return mask
 
 
-#----------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------
 # Some standard modules
 
 class LayerNorm(nn.Module):
     "layer normalization, as in: https://arxiv.org/abs/1607.06450"
+
     def __init__(self, features, eps=1e-6):
         super(LayerNorm, self).__init__()
         self.a_2 = nn.Parameter(torch.ones(features))
@@ -698,6 +546,7 @@ class ResidualSkipConnectionWithLayerNorm(nn.Module):
     A residual connection followed by a layer norm.
     Note for code simplicity the norm is first as opposed to last.
     """
+
     def __init__(self, size, dropout):
         super(ResidualSkipConnectionWithLayerNorm, self).__init__()
         self.norm = LayerNorm(size)
@@ -712,6 +561,7 @@ class MLP(nn.Module):
     """
     This is just an MLP with 1 hidden layer
     """
+
     def __init__(self, n_units, dropout=0.1):
         super(MLP, self).__init__()
         self.w_1 = nn.Linear(n_units, 2048)
