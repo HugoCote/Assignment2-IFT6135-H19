@@ -45,10 +45,10 @@ def clones(module, N):
 
 
 # Problem 1
-class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities.
+class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearities.
 
     def __init__(self, emb_size, hidden_size, seq_len, batch_size,
-               vocab_size, num_layers, dp_keep_prob):
+                 vocab_size, num_layers, dp_keep_prob):
         """
         emb_size:     The numvwe of units in the input embeddings
         hidden_size:  The number of hidden units per layer
@@ -76,41 +76,38 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
         # Embedding layer
         self.embeddings = WordEmbedding(emb_size, vocab_size)
 
-        # Dropout after embedding
-        self.dropout_layer = nn.Dropout(1-dp_keep_prob)
-
         # First layer: receives emb_size and hidden size. Output hidden_size
         self.first_hidden_layer = nn.Linear(emb_size + hidden_size, hidden_size, bias=True)
 
         # Hidden layer: receives hidden and lag hidden Output hidden_size
-        self.hidden_layer = nn.Linear(hidden_size + hidden_size, hidden_size, bias=True)
-
+        self.hidden_layer = nn.Linear(hidden_size + hidden_size, hidden_size,
+                                      bias=True)
         # Output layer: receives hidden size
         self.output_layer = nn.Linear(hidden_size, vocab_size, bias=True)
+
+        # TODO Initialize here
+        # self.init_weights_uniform()
 
         # Input to hidden layer
         first_seq = nn.Sequential(
             self.first_hidden_layer,
             nn.Tanh(),
-            nn.Dropout(1-dp_keep_prob),
+            nn.Dropout(dp_keep_prob),
         )
 
         # hidden to hidden layer
         hidden_seq = nn.Sequential(
             self.hidden_layer,
             nn.Tanh(),
-            nn.Dropout(1-dp_keep_prob),
+            nn.Dropout(dp_keep_prob),
         )
 
         # Stack the hidden layers with same shape (n_layers minus 1 because
         # the first layer has different input size)
-        self.layers = clones(hidden_seq, self.num_layers-1)
+        self.layers = clones(hidden_seq, self.num_layers - 1)
 
         # Adjust for first layer.
         self.layers = nn.ModuleList([first_seq, *self.layers])
-
-        # Initialize weights
-        self.init_weights_uniform()
 
         # TODO ========================
         # Initialization of the parameters of the recurrent and fc layers.
@@ -131,24 +128,7 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
         # TODO ========================
         # Initialize all the weights uniformly in the range [-0.1, 0.1]
         # and all the biases to 0 (in place)
-
-        embeddings = self.embeddings.lut
-        embeddings.weight.data = torch.Tensor(embeddings.weight.shape).uniform_(-0.1, 0.1)
-        # embedding.bias.data = torch.zeros(embedding.bias.shape)
-        self.embeddings = embeddings
-
-        # # For the current time step, go through the all the hidden layers
-        # for layer in range(0, self.num_layers):
-        #     print("LAYER: {}".format(layer))
-        #     tmp_weight_shape = self.layers[layer][0].weight.shape
-        #     self.layers[layer][0].weight.data = torch.Tensor(tmp_weight_shape).uniform_(-0.1, 0.1)
-        #
-        #     tmp_bias_shape = self.layers[layer][0].bias.shape
-        #     self.layers[layer][0].bias.data = torch.zeros(tmp_bias_shape)
-
-        # Output
-        self.output_layer.weight.data = torch.Tensor(self.output_layer.weight.shape).uniform_(-0.1, 0.1)
-        self.output_layer.bias.data = torch.zeros(self.output_layer.bias.shape)
+        pass
 
     def init_hidden(self):
         # TODO ========================
@@ -159,7 +139,6 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
         h0 = torch.zeros(self.num_layers, self.batch_size, self.hidden_size)
 
         return h0  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
-
 
     def forward(self, inputs, hidden):
         # TODO ========================
@@ -182,6 +161,7 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
                             shape: (seq_len, batch_size)
             - hidden: The initial hidden states for every layer of the stacked RNN.
                             shape: (num_layers, batch_size, hidden_size)
+
         Returns:
             - Logits for the softmax over output tokens at every time-step.
                   **Do NOT apply softmax to the outputs!**
@@ -201,8 +181,8 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
         # HERE
 
         # Set logits to zero (initialization)
-        logits = torch.zeros(self.seq_len, self.batch_size, self.vocab_size)
-
+        # logits = torch.zeros(self.seq_len, self.batch_size, self.vocab_size).to(inputs)
+        logits = []
         # TODO I am not taking into account batch size here. Not sure how to do it.
 
         # Loop through time.
@@ -212,9 +192,6 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
             inp = inputs[step]
             # Embedding output the for word at time t.
             embed = self.embeddings(inp)
-
-            # Dropout after embedding
-            self.dropout_layer(embed)
 
             # First hidden layer output
             h = hidden[0]  # => shape: (1, batch_size, hidden_size)
@@ -230,7 +207,6 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
 
             # For the current time step, go through the all the hidden layers
             for layer in range(1, self.num_layers):
-
                 # Take the hidden state of the current layer
                 h = hidden[layer]
 
@@ -242,10 +218,10 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
                 hidden[layer] = out
 
             # last layer to calculate the logits
-            # not sure here when they say not to do softmax.... ???
-            logits[step] = self.output_layer(out)
-
-        return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
+            # not sure here when they say not to do softmax....
+            logits.append(self.output_layer(out))
+        logits = torch.cat(logits).view(self.seq_len, self.batch_size, self.vocab_size)
+        return logits, hidden
 
     def sample_from_density(self, density_matrix):
         # input : density_tensor :
@@ -253,7 +229,12 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
         # last dim. of the input tensor will be shrinked and squeezed to produce the output
         # i.e. density_matrix has shape n_1 x n_2 and output had shape n_1
         # output contains sampled indices
-        rand_ind = torch.multinomial(density_matrix, 1, replacement=True)
+
+        # hardcoded : prevend choosing '<unk>' label by setting prob to zero
+        bs = density_matrix.shape[0]
+        density_matrix[:,1] = torch.zeros(bs)
+
+        rand_ind = torch.multinomial(density_matrix, 1, replacement=True).squeeze(-1)
         return rand_ind
 
     def generate(self, input, hidden, generated_seq_len):
@@ -286,21 +267,20 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
 
         # Initilize samples
         # the entries of this matrix will be computed sequentialy row by row
-        samples = torch.empty( generated_seq_len , self.batch_size, dtype=torch.long)
+        in_batch_size = input.shape[0]
+        samples = torch.empty( generated_seq_len , in_batch_size, dtype=torch.long)
         samples[0,:] = input
 
         # Loop through time.
-        for step in range(1, generated_seq_len + 1):
-
+        for step in range(1, generated_seq_len):
+            # new input is previously generated sample
+            # for step == 1, the input is given
             inp = samples[step-1,:]
             # Embedding output the for word at time t.
             embed = self.embeddings(inp)
 
-            # Dropout after embedding
-            self.dropout_layer(embed)
-
             # First hidden layer output
-            h = hidden[0]  # => shape: (1, batch_size, hidden_size)
+            h = hidden[0]  # => shape: (1, in_batch_size, hidden_size)
 
             # embed + h as input for the next time step
             combined = torch.cat((h, embed), 1)
@@ -313,7 +293,6 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
 
             # For the current time step, go through the all the hidden layers
             for layer in range(1, self.num_layers):
-
                 # Take the hidden state of the current layer
                 h = hidden[layer]
 
@@ -324,13 +303,14 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
                 # This will be used in the next timestep as the lag value.
                 hidden[layer] = out
 
-            # last layer to calculate the logits
-            # not sure here when they say not to do softmax.... ???
-            logits[step] = self.output_layer(out)
+            # last layer to calculate the density
+            # output_layer returns (in_batch_size, self.vocab_size)
+            # sampled_indices is (in_batch_size) and serves has input to next step
+            density_matrix     = F.softmax( self.output_layer(out) , dim=-1)
+            sampled_indices    = self.sample_from_density( density_matrix )
+            samples[ step , :] = sampled_indices
 
-        # return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
-
-        return samples
+        return samples, hidden
 
 
 class GRU(nn.Module):  # Implement a stacked GRU RNN
@@ -402,9 +382,73 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
         logits = torch.cat(logits, dim=0)
         return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
 
+    def sample_from_density(self, density_matrix):
+        # input : density_tensor :
+        # dim -1 of this tensor represent a valid probability mass function
+        # last dim. of the input tensor will be shrinked and squeezed to produce the output
+        # i.e. density_matrix has shape n_1 x n_2 and output had shape n_1
+        # output contains sampled indices
+
+        # hardcoded : prevend choosing '<unk>' label by setting prob to zero
+        bs = density_matrix.shape[0]
+        density_matrix[:,1] = torch.zeros(bs)
+
+        rand_ind = torch.multinomial(density_matrix, 1, replacement=True).squeeze(-1)
+        return rand_ind
+
     def generate(self, input, hidden, generated_seq_len):
-        samples = None
-        return samples
+        # TODO ========================
+        # Compute the forward pass, as in the self.forward method (above).
+        # You'll probably want to copy substantial portions of that code here.
+        #
+        # We "seed" the generation by providing the first inputs.
+        # Subsequent inputs are generated by sampling from the output distribution,
+        # as described in the tex (Problem 5.3)
+        # Unlike for self.forward, you WILL need to apply the softmax activation
+        # function here in order to compute the parameters of the categorical
+        # distributions to be sampled from at each time-step.
+
+        """
+        Arguments:
+            - input: A mini-batch of input tokens (NOT sequences!)
+                            shape: (batch_size)
+            - hidden: The initial hidden states for every layer of the stacked RNN.
+                            shape: (num_layers, batch_size, hidden_size)
+            - generated_seq_len: The length of the sequence to generate.
+                           Note that this can be different than the length used
+                           for training (self.seq_len)
+        Returns:
+            - Sampled sequences of tokens
+                        shape: (generated_seq_len, batch_size)
+        """
+        samples = torch.empty( generated_seq_len , self.batch_size, dtype=torch.long)
+        samples[0,:] = input
+        for step in range( 1 , generated_seq_len ):
+            hiddens = []
+            layer_inpt = self.embedding( samples[step-1,:] )
+            for n in range(self.num_layers):
+                hidden_gates = self.hidden_gates[n](torch.cat([layer_inpt, hidden[n]], dim=1))
+                update_gate = hidden_gates[:, :self.hidden_size]
+                reset_gate  = hidden_gates[:, self.hidden_size:]
+
+                cell_state = self.hidden_states[n](torch.cat([layer_inpt, reset_gate * hidden[n]], dim=1))
+
+                hidden_out = (1. - update_gate) * hidden[n] + update_gate * cell_state
+
+                hiddens.append(hidden_out.unsqueeze(0))
+                layer_inpt = hidden_out  # input for the next layer
+
+            # last layer to calculate the density
+            # output_layer returns (self.batch_size, self.vocab_size)
+            # sampled_indices is (self.batch_size) and serves has input to next step
+            output             = self.output_layer(hidden_out)
+            density_matrix     = F.softmax( output , dim=-1)
+            sampled_indices    = self.sample_from_density( density_matrix )
+            samples[ step , :] = sampled_indices
+
+            hidden = torch.cat(hiddens, dim=0)
+
+        return samples, hidden
 
 
 # class LSTM(nn.Module):

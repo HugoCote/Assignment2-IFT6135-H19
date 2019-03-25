@@ -104,14 +104,14 @@ def set_hooks(model, model_name):
         if   model_name == 'RNN' :
             tmp = model.layers[i]._modules['0']
         elif model_name == 'GRU' :
-            tmp = model.hidden_states[i]._modules['0']
+            tmp = model.state_connections[i]._modules['0']
         elif model_name == 'TRANSFORMER':
             tmp = model._modules['transformer_stack']._modules['layers']._modules[str(i)]._modules['feed_forward']
         grad_handle  = tmp.register_backward_hook( save_grad('Loss grad', i) )
         list_grad_handle += [grad_handle]
     return grads, list_grad_handle
 
-def run_batch_52(model, model_name, batch):
+def run_batch_52(model, model_name, hidden, batch):
     """
     Takes a model and a batch
     returns a (model.num_layers x model.seq_len) tensor containing :
@@ -125,14 +125,11 @@ def run_batch_52(model, model_name, batch):
     # in training mode
     model.train()
     #
-    if model_name != 'TRANSFORMER':
-        hidden = model.init_hidden()
-        hidden = hidden.to(device)
     # compute output and
     #   throw away hidden state
     #   only keep the last word prediction for each seq of the batch
     if model_name == 'TRANSFORMER':
-        inputs     = Batch(torch.from_numpy(batch[0]).long().to(device))
+        inputs      = Batch(torch.from_numpy(batch[0]).long().to(device))
         outputs     = model.forward(inputs.data, inputs.mask).transpose(1,0)
         lw_outputs  = outputs[-1,:,:].to(device)
     else :
@@ -188,13 +185,25 @@ def run_batch_52(model, model_name, batch):
     return norm_avg_nablaL
 
 def code_for_52(model, model_name, data):
-    # define the batch we'll use
+    # if the model is recurent, we set its hidden state by
+    # running the model on few batches
     iterator = ptb_iterator(data, model.batch_size, model.seq_len)
+    if model_name == 'RNN' or model_name == 'GRU':
+        hidden = model.init_hidden().to(device)
+    else :
+        hidden = None
+    for i in range(5) :
+        input, target = next(iterator,None)
+        if model_name == 'RNN' or model_name == 'GRU':
+            hidden = repackage_hidden(hidden)
+            inputs = torch.from_numpy(input.astype(np.int64)).transpose(0, 1).contiguous().to(device)
+            outputs, hidden = model(inputs, hidden)
+    # define the batch we'll use
     input, target = next(iterator,None)
-    batch = (intput, target)
+    batch = (input, target)
     # compute average norm of the loss at time step -1 across
     # hidden layers and time steps
-    norm_avg_nablaL = run_batch_52(model, batch)
+    norm_avg_nablaL = run_batch_52(model, model_name, hidden, batch)
 
     # do other thing if you want e.g. plot
     return norm_avg_nablaL
@@ -207,9 +216,12 @@ def code_for_52(model, model_name, data):
 ######################## start of code for prob 5.1 ##############################
 ##################################################################################
 
-def code_for_51(model, model_name, data):
+def code_for_51(model, model_name, force_init, data):
     """
     Input  : a model, its name, and the data
+             force_init is either true or false and
+             is set to true to re-initialize hidden state
+             at the start of each new batch
     output : a numpy array containing the loss
              averaged across sequence of the same minibatch
              for each time step and for each minibatch
@@ -231,6 +243,9 @@ def code_for_51(model, model_name, data):
                 batch = Batch(torch.from_numpy(x).long().to(device))
                 outputs = model.forward(batch.data, batch.mask).transpose(1,0)
             else:
+                if force_init is True:
+                    hidden = model.init_hidden()
+                    hidden = hidden.to(device)
                 inputs = torch.from_numpy(x.astype(np.int64))
                 inputs = inputs.transpose(0, 1).contiguous().to(device)
                 model.zero_grad()
