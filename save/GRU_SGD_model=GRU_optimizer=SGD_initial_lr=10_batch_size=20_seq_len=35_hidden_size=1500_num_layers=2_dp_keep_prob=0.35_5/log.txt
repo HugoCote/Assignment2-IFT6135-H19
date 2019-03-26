@@ -1,0 +1,1 @@
+epoch: 0	train ppl: 473.5789993875242	val ppl: 327.4643599870251	best val: 327.4643599870251	time (s) spent in epoch: 395.0593156814575
