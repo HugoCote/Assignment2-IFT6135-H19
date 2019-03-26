@@ -43,10 +43,10 @@ def clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 # Problem 1
-class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities.
+class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearities.
 
     def __init__(self, emb_size, hidden_size, seq_len, batch_size,
-               vocab_size, num_layers, dp_keep_prob):
+                 vocab_size, num_layers, dp_keep_prob):
         """
         emb_size:     The numvwe of units in the input embeddings
         hidden_size:  The number of hidden units per layer
@@ -74,82 +74,35 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
         # Embedding layer
         self.embeddings = WordEmbedding(emb_size, vocab_size)
 
-        # Dropout after embedding
-        self.dropout_layer = nn.Dropout(1-dp_keep_prob)
-
-        # First layer: receives emb_size and hidden size. Output hidden_size
-        self.first_hidden_layer = nn.Linear(emb_size + hidden_size, hidden_size, bias=True)
-
-        # Hidden layer: receives hidden and lag hidden Output hidden_size
-        self.hidden_layer = nn.Linear(hidden_size + hidden_size, hidden_size, bias=True)
+        # Dropout
+        self.dp = nn.Dropout(1. - dp_keep_prob)
 
         # Output layer: receives hidden size
-        self.output_layer = nn.Linear(hidden_size, vocab_size, bias=True)
+        self._output_layer = nn.Linear(hidden_size, vocab_size, bias=True)
 
-        # Input to hidden layer
-        first_seq = nn.Sequential(
-            self.first_hidden_layer,
-            nn.Tanh(),
-            nn.Dropout(1-dp_keep_prob),
-        )
-
-        # hidden to hidden layer
-        hidden_seq = nn.Sequential(
-            self.hidden_layer,
-            nn.Tanh(),
-            nn.Dropout(1-dp_keep_prob),
-        )
-
-        # Stack the hidden layers with same shape (n_layers minus 1 because
-        # the first layer has different input size)
-        self.layers = clones(hidden_seq, self.num_layers-1)
-
-        # Adjust for first layer.
-        self.layers = nn.ModuleList([first_seq, *self.layers])
-
-        # Initialize weights
+        # Init embedding
         self.init_weights_uniform()
 
-        # TODO ========================
-        # Initialization of the parameters of the recurrent and fc layers.
-        # Your implementation should support any number of stacked hidden layers
-        # (specified by num_layers), use an input embedding layer, and include fully
-        # connected layers with dropout after each recurrent layer.
-        # Note: you may use pytorch's nn.Linear, nn.Dropout, and nn.Embedding
-        # modules, but not recurrent modules.
-        #
-        # To create a variable number of parameter tensors and/or nn.Modules
-        # (for the stacked hidden layer), you may need to use nn.ModuleList or the
-        # provided clones function (as opposed to a regular python list), in order
-        # for Pytorch to recognize these parameters as belonging to this nn.Module
-        # and compute their gradients automatically. You're not obligated to use the
-        # provided clones function.
+        # Build the stack
+        self.layers = nn.ModuleList()
+        input_size = emb_size
+        for _ in range(num_layers):
+            mod_list = nn.ModuleList()
+            mod_list.append(nn.Linear(hidden_size, hidden_size, bias=True))
+            mod_list.append(nn.Linear(input_size, hidden_size, bias=True))
+            mod_list.append(nn.Tanh())
+            input_size = hidden_size
+            self.layers.append(mod_list)
 
     def init_weights_uniform(self):
-        # TODO ========================
         # Initialize all the weights uniformly in the range [-0.1, 0.1]
         # and all the biases to 0 (in place)
-
-        embeddings = self.embeddings.lut
-        embeddings.weight.data = torch.Tensor(embeddings.weight.shape).uniform_(-0.1, 0.1)
-        # embedding.bias.data = torch.zeros(embedding.bias.shape)
-        self.embeddings = embeddings
-
-        # # For the current time step, go through the all the hidden layers
-        # for layer in range(0, self.num_layers):
-        #     print("LAYER: {}".format(layer))
-        #     tmp_weight_shape = self.layers[layer][0].weight.shape
-        #     self.layers[layer][0].weight.data = torch.Tensor(tmp_weight_shape).uniform_(-0.1, 0.1)
-        #
-        #     tmp_bias_shape = self.layers[layer][0].bias.shape
-        #     self.layers[layer][0].bias.data = torch.zeros(tmp_bias_shape)
-
-        # Output
-        self.output_layer.weight.data = torch.Tensor(self.output_layer.weight.shape).uniform_(-0.1, 0.1)
-        self.output_layer.bias.data = torch.zeros(self.output_layer.bias.shape)
+        init.uniform_(self.embeddings.lut.weight, -0.1, 0.1)
+        init.uniform_(self._output_layer.weight, -0.1, 0.1)
+        with torch.no_grad():
+            self._output_layer.bias.zero_()
 
     def init_hidden(self):
-        # TODO ========================
         """
         initialize the hidden states to zero
         This is used for the first mini-batch in an epoch, only.
@@ -158,21 +111,7 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
 
         return h0  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
 
-
     def forward(self, inputs, hidden):
-        # TODO ========================
-        # Compute the forward pass, using a nested python for loops.
-        # The outer for loop should iterate over timesteps, and the
-        # inner for loop should iterate over hidden layers of the stack.
-        #
-        # Within these for loops, use the parameter tensors and/or nn.modules you
-        # created in __init__ to compute the recurrent updates according to the
-        # equations provided in the .tex of the assignment.
-        #
-        # Note that those equations are for a single hidden-layer RNN, not a stacked
-        # RNN. For a stacked RNN, the hidden states of the l-th layer are used as
-        # inputs to to the {l+1}-st layer (taking the place of the input sequence).
-
         """
         Arguments:
             - inputs: A mini-batch of input sequences, composed of integers that
@@ -194,57 +133,78 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
                   if you are curious.
                         shape: (num_layers, batch_size, hidden_size)
         """
-
-        # TODO Initialize layers
-        # HERE
-
-        # Set logits to zero (initialization)
-        logits = torch.zeros(self.seq_len, self.batch_size, self.vocab_size)
-
-        # TODO I am not taking into account batch size here. Not sure how to do it.
-
         # Loop through time.
+        logits = []
         for step in range(0, self.seq_len):
 
             # Input is (seq_len, batch_size)
             inp = inputs[step]
+
             # Embedding output the for word at time t.
-            embed = self.embeddings(inp)
+            out = self.embeddings(inp)
 
-            # Dropout after embedding
-            self.dropout_layer(embed)
-
-            # First hidden layer output
-            h = hidden[0]  # => shape: (1, batch_size, hidden_size)
-
-            # embed + h as input for the next time step
-            combined = torch.cat((h, embed), 1)
-
-            # Forward through first layer
-            out = self.layers[0](combined)
-
-            # This will be used in the next timestep as the lag value.
-            hidden[0] = out
-
+            # step hidden to avoid issue
+            step_hidden = []
             # For the current time step, go through the all the hidden layers
-            for layer in range(1, self.num_layers):
-
+            for layer in range(0, self.num_layers):
                 # Take the hidden state of the current layer
+
+                hidden2hidden, layer2layer, tanh = self.layers[layer]
+
+                # Get hidden t-1
                 h = hidden[layer]
 
-                # Combine hidden state of l-th layer and current hidden state
-                combined = torch.cat((h, out), 1)
-                out = self.layers[layer](combined)
+                # Previous hidden
+                h = hidden2hidden(h)
 
-                # This will be used in the next timestep as the lag value.
-                hidden[layer] = out
+                # Dropout before weights
+                out = self.dp(out)
+
+                # Previous layer to next layer
+                out = layer2layer(out)
+
+                # h + out before tanh
+                out += h
+
+                # tanh
+                out = tanh(out)
+
+                step_hidden.append(out)
+
+            hidden = step_hidden
 
             # last layer to calculate the logits
-            # not sure here when they say not to do softmax.... ???
-            logits[step] = self.output_layer(out)
+            # Is it fine to do dropout here as well ?
+            out = self.dp(out)
+            out = self._output_layer(out)
+            logits.append(out)
 
-        return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
+        logits = torch.cat(logits).view(self.seq_len, self.batch_size, self.vocab_size)
 
+        return logits, hidden
+
+    def sample_from_logits(self, logits_matrix):
+        # input : logits_tensor :
+        # dim -1 of this tensor represent a valid temperature function
+        # last dim. of the input tensor will be shrinked and squeezed to produce the output
+        # i.e. logits_matrix has shape n_1 x n_2 and output had shape n_1
+        # output contains sampled indices and their (unaltered) log-probabilities
+
+        # step 1 : increase the temperature if necesary to over-sample
+        # from the most probable token or do the reverse
+        temp = 1.5
+        density_matrix     = F.softmax( temp * logits_matrix , dim=-1)
+        log_density_matrix = F.log_softmax( logits_matrix , dim=-1)
+
+        # hardcoded : prevend choosing '<unk>' label by setting prob to zero
+        bs = density_matrix.shape[0]
+        density_matrix[:,1] = torch.zeros(bs)
+
+        rand_ind = torch.multinomial(density_matrix, 1, replacement=True)
+        # gather true prob of sampled token
+        probs    = torch.gather(log_density_matrix , 1, rand_ind)
+        # return sample and their prob
+        return rand_ind.squeeze(-1), probs.squeeze(-1)
 
     def generate(self, input, hidden, generated_seq_len):
         # TODO ========================
@@ -270,11 +230,63 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
         Returns:
             - Sampled sequences of tokens
                         shape: (generated_seq_len, batch_size)
+            - the log-probability of sampled sequences
         """
-        samples = None
-        return samples
+        in_batch_size = input.shape[0]
+        samples = torch.empty( generated_seq_len , in_batch_size, dtype=torch.long)
+        logprob = torch.zeros( in_batch_size, dtype=torch.float)
+        samples[0,:] = input
+        for step in range(1, generated_seq_len):
 
+            # Input is (seq_len, batch_size)
+            inp = samples[step-1,:]
 
+            # Embedding output the for word at time t.
+            out = self.embeddings(inp)
+
+            # step hidden to avoid issue
+            step_hidden = []
+            # For the current time step, go through the all the hidden layers
+            for layer in range(0, self.num_layers):
+                # Take the hidden state of the current layer
+
+                hidden2hidden, layer2layer, tanh = self.layers[layer]
+
+                # Get hidden t-1
+                h = hidden[layer]
+
+                # Previous hidden
+                h = hidden2hidden(h)
+
+                # Dropout before weights
+                out = self.dp(out)
+
+                # Previous layer to next layer
+                out = layer2layer(out)
+
+                # h + out before tanh
+                out += h
+
+                # tanh
+                out = tanh(out)
+
+                step_hidden.append(out)
+
+            hidden = step_hidden
+
+            # last layer to calculate the logits
+            out = self.dp(out)
+            out = self._output_layer(out)
+            # convert logits to density and sample from it
+            # output_layer returns (in_batch_size, self.vocab_size)
+            # sampled_indices is (in_batch_size) and serves has input to next step
+            sampled_indices, probs    = self.sample_from_logits( out )
+            samples[ step , :] = sampled_indices
+            logprob            = logprob + probs
+
+        return samples, logprob, hidden
+
+# Problem 2
 class GRU(nn.Module):  # Implement a stacked GRU RNN
     """
     Follow the same instructions as for RNN (above), but use the equations for
@@ -292,61 +304,148 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
         self.dp_keep_prob = dp_keep_prob
 
         # word embedding
-        self.embedding = WordEmbedding(emb_size, vocab_size)
+        self.embeddings = WordEmbedding(emb_size, vocab_size)
+        self.dropout = nn.Dropout(1. - dp_keep_prob)
+        self.tanh = nn.Tanh()
 
-        # hidden layers:
-        self.hidden_gates = nn.ModuleList()  # compute the update and reset gates
-        self.hidden_states = nn.ModuleList()  # compute the cell state using the reset gate
+
+        self.reset_gates = nn.ModuleList()
+        self.update_gates = nn.ModuleList()
+        self.state_connections = nn.ModuleList()
+        input_size = emb_size
         for i in range(num_layers):
-            if i == 0:
-                input_size = emb_size + hidden_size
-            else:
-                input_size = 2 * hidden_size
-            self.hidden_gates.append(nn.Sequential(
-                nn.Linear(input_size, 2 * hidden_size),
-                nn.Sigmoid()
-            ))
-            self.hidden_states.append(nn.Sequential(
-                nn.Linear(input_size, hidden_size),
-                nn.Tanh()
-            ))
+            # reset gate
+            connections = nn.ModuleList()
+            connections.append(nn.Linear(input_size, hidden_size))
+            connections.append(nn.Linear(hidden_size, hidden_size))
+            connections.append(nn.Sigmoid())
+            self.reset_gates.append(connections)
+
+            # update gate
+            connections = nn.ModuleList()
+            connections.append(nn.Linear(input_size, hidden_size))
+            connections.append(nn.Linear(hidden_size, hidden_size))
+            connections.append(nn.Sigmoid())
+            self.update_gates.append(connections)
+
+            # hidden, input to hidden connection
+            connections = nn.ModuleList()
+            connections.append(nn.Linear(input_size, hidden_size))
+            connections.append(nn.Linear(hidden_size, hidden_size))
+            connections.append(nn.Tanh())
+            self.state_connections.append(connections)
+
+            input_size = hidden_size
 
         self.output_layer = nn.Linear(hidden_size, vocab_size)
+        self.init_weights_uniform()
+
 
     def init_weights_uniform(self):
-        pass
+        # std = 1./(self.hidden_size ** 0.5)
+        # for w in self.parameters():
+        #     init.uniform_(w, -std, std)
+        init.uniform_(self.embeddings.lut.weight, -0.1, 0.1)
+        init.uniform_(self.output_layer.weight, -0.1, 0.1)
+        with torch.no_grad():
+            self.output_layer.bias.zero_()
+
 
     def init_hidden(self):
         return torch.zeros(self.num_layers, self.batch_size, self.hidden_size)
 
     def forward(self, inputs, hidden):
-        logits = []
-        embeddings = self.embedding(inputs)
-        for i in range(self.seq_len):
-            hiddens = []
-            layer_inpt = embeddings[i]
-            for n in range(self.num_layers):
-                hidden_gates = self.hidden_gates[n](torch.cat([layer_inpt, hidden[n]], dim=1))
-                update_gate = hidden_gates[:, :self.hidden_size]
-                reset_gate = hidden_gates[:, self.hidden_size:]
+        outputs = []
+        for n in range(self.seq_len):
+            input = self.embeddings(inputs[n])
+            new_hiddens = []
+            for l in range(self.num_layers):
+                i_r, h_r, activation = self.reset_gates[l]
+                reset_gate = activation(i_r(input) + h_r(hidden[l]))
+                i_u, h_u, activation = self.update_gates[l]
+                update_gate = activation(i_u(input) + h_u(hidden[l]))
+                i_c, h_c, activation = self.state_connections[l]
+                cell_intermediate_state = activation(i_c(self.dropout(input)) + reset_gate * h_c(hidden[l]))
+                cell_state = (1. - update_gate) * cell_intermediate_state + update_gate * hidden[l]
+                new_hiddens.append(cell_state)
+                input = cell_state
 
-                cell_state = self.hidden_states[n](torch.cat([layer_inpt, reset_gate * hidden[n]], dim=1))
+            output = self.output_layer(self.dropout(cell_state))
+            # output = self.output_layer(cell_state)
+            outputs.append(output)
+            hidden = new_hiddens
 
-                hidden_out = (1. - update_gate) * hidden[n] + update_gate * cell_state
+        outputs = [o.unsqueeze(0) for o in outputs]
+        hidden = [h.unsqueeze(0) for h in hidden]
+        return torch.cat(outputs, dim=0), torch.cat(hidden, dim=0)
 
-                hiddens.append(hidden_out.unsqueeze(0))
-                layer_inpt = hidden_out  # input for the next layer
 
-            output = self.output_layer(hidden_out)
-            hidden = torch.cat(hiddens, dim=0)
-            logits.append(output)
+    def sample_from_logits(self, logits_matrix):
+        # input : logits_tensor :
+        # dim -1 of this tensor represent a valid temperature function
+        # last dim. of the input tensor will be shrinked and squeezed to produce the output
+        # i.e. logits_matrix has shape n_1 x n_2 and output had shape n_1
+        # output contains sampled indices and their (unaltered) log-probabilities
 
-        logits = torch.cat(logits, dim=0)
-        return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
+        # step 1 : increase the temperature if necesary to over-sample
+        # from the most probable token
+        temp = 1.5
+        density_matrix     = F.softmax( temp * logits_matrix , dim=-1)
+        log_density_matrix = F.log_softmax( logits_matrix , dim=-1)
 
-    def generate(self, input, hidden, generated_seq_len):
-        samples = None
-        return samples
+        # hardcoded : prevend choosing '<unk>' label by setting prob to zero
+        bs = density_matrix.shape[0]
+        density_matrix[:,1] = torch.zeros(bs)
+
+        rand_ind = torch.multinomial(density_matrix, 1, replacement=True)
+        # gather true prob of sampled token
+        probs    = torch.gather(log_density_matrix , 1, rand_ind)
+        # return sample and their prob
+        return rand_ind.squeeze(-1), probs.squeeze(-1)
+
+    def generate(self, inputs, hidden, generated_seq_len):
+        """
+        Arguments:
+            - inputs: A mini-batch of input tokens (NOT sequences!)
+                            shape: (batch_size)
+            - hidden: The initial hidden states for every layer of the stacked RNN.
+                            shape: (num_layers, batch_size, hidden_size)
+            - generated_seq_len: The length of the sequence to generate.
+                           Note that this can be different than the length used
+                           for training (self.seq_len)
+        Returns:
+            - Sampled sequences of tokens
+                        shape: (generated_seq_len, batch_size)
+            - the log-probability of sampled sequences
+        """
+        samples = torch.empty( generated_seq_len , self.batch_size, dtype=torch.long)
+        logprob = torch.zeros( self.batch_size, dtype=torch.float)
+        samples[0,:] = inputs
+
+        for n in range( 1 , generated_seq_len ):
+            input = self.embeddings( samples[n-1,:] )
+            new_hiddens = []
+            for l in range(self.num_layers):
+                i_r, h_r, activation = self.reset_gates[l]
+                reset_gate = activation(i_r(input) + h_r(hidden[l]))
+                i_u, h_u, activation = self.update_gates[l]
+                update_gate = activation(i_u(input) + h_u(hidden[l]))
+                i_c, h_c, activation = self.state_connections[l]
+                cell_intermediate_state = activation(i_c(self.dropout(input)) + reset_gate * h_c(hidden[l]))
+                cell_state = (1. - update_gate) * cell_intermediate_state + update_gate * hidden[l]
+                new_hiddens.append(cell_state)
+                input = cell_state
+
+            output = self.output_layer(self.dropout(cell_state))
+            # output = self.output_layer(cell_state)
+            sampled_indices, probs = self.sample_from_logits( output )
+            samples[ n , :] = sampled_indices
+            logprob            = logprob + probs
+            hidden = new_hiddens
+
+        hidden = [h.unsqueeze(0) for h in hidden]
+
+        return samples, logprob, torch.cat(hidden, dim=0)
 
 # Problem 3
 ##############################################################################
@@ -426,6 +525,7 @@ class MultiHeadedAttention(nn.Module):
         assert n_units % n_heads == 0
         self.n_units = n_units
         self.n_heads = n_heads
+        self.dropout = nn.Dropout(p=dropout)
 
         # TODO: create/initialize any necessary parameters or layers
         # Initialize all weights and biases uniformly in the range [-k, k],
@@ -433,99 +533,17 @@ class MultiHeadedAttention(nn.Module):
         # Note: the only Pytorch modules you are allowed to use are nn.Linear
         # and nn.Dropout
 
-        # self.query_map  = nn.Linear(n_units , n_units)
-        # self.value_map  = nn.Linear(n_units , n_units)
-        # self.key_map    = nn.Linear(n_units , n_units)
-        # self.dropout    = nn.Dropout(dropout)
-        # self.output_map = nn.Linear(n_units , n_units)
-
+        # Originally in the paper suggested that the h input projections are of
+        # the size n_unit * d_k, but to benefit the acceleration of matrix
+        # multiplication of all of them together on the GPU, we'll assume all the
+        # input projections W_Q, W_K, W_V are concatenated in matrices of the
+        # size n_unit * ( d_k * n_heads ) = n_unit * n_unit , this also keeps
+        # ensured that the initialization of all weights and biases uniformly in
+        # the range [-k, k], where k is the square root of 1/n_units.
         self.W_Q = nn.Linear(self.n_units, self.n_units)
         self.W_K = nn.Linear(self.n_units, self.n_units)
         self.W_V = nn.Linear(self.n_units, self.n_units)
         self.W_O = nn.Linear(self.n_units, self.n_units)
-        self.dropout = nn.Dropout(p=dropout)
-
-        # self.init_range = torch.rsqrt( torch.tensor([n_units]).float() )
-        self.init_range = 1/math.sqrt( n_units )
-        def init_map_layer( layer, k ):
-            with torch.no_grad() :
-                layer.bias.data.fill_(0.0)
-                layer.weight.data.uniform_( -k , k )
-
-        # init_map_layer( self.query_map  , self.init_range )
-        # init_map_layer( self.value_map  , self.init_range )
-        # init_map_layer( self.key_map    , self.init_range )
-        # init_map_layer( self.output_map , self.init_range )
-
-        init_map_layer( self.W_Q , self.init_range )
-        init_map_layer( self.W_K , self.init_range )
-        init_map_layer( self.W_V , self.init_range )
-        init_map_layer( self.W_O , self.init_range )
-
-    """
-    def forward(self, query, key, value, mask=None):
-        # TODO: implement the masked multi-head attention.
-        # query, key, and value all have size: (batch_size, seq_len, self.n_units)
-        # mask has size: (batch_size, seq_len, seq_len)
-        # As described in the .tex, apply input masking to the softmax
-        # generating the "attention values" (i.e. A_i in the .tex)
-        # Also apply dropout to the attention values.
-
-        batch_size = query.size(0)
-        seq_lenght = query.size(1)
-
-        # abreviations
-        bs   = batch_size
-        sl   = seq_lenght
-        nh   = self.n_heads
-        dk   = self.d_k
-        dm   = self.n_units # dm stands for d_model
-
-        # compute mapped queries, keys and values
-        query = self.query_map( query )
-        key   = self.key_map( key )
-        value = self.value_map( value )
-
-        # arrange to form Q_i, K_i, V_i
-        query = query.view( bs, nh, sl, dk )
-        key   =   key.view( bs, nh, sl, dk )
-        value = value.view( bs, nh, sl, dk )
-
-        # compute pre-attention coefficients, i.e. input of the softmax
-        # attn_scale = torch.rsqrt(torch.tensor([ dk ]).float() ).to(device) # scaling factor
-        attn_scale = 1.0/math.sqrt(dk)
-        attention  = attn_scale * torch.matmul( query , key.transpose(-1,-2) )
-
-        # apply the mask to the pre-attentions
-        # at this point, Attention has size ( bs, nh, sl, sl )
-        #             and the mask has size ( bs,     sl, sl )
-        # so the mask must be unsqueezed to fit the Attention
-        if mask is not None:
-            big_M = -1.0e9
-            attention.masked_fill( 1 - mask.unsqueeze(1), big_M)
-
-        # Compute the attention coefficients
-        # softmax is applied in dimension that correspond semanticaly to the keys
-        # to be explicit, the dimension of Attention correspond to :
-        #   dim 0 : batch dimension
-        #   dim 1 : head  dimension
-        #   dim 2 : query dimension
-        #   dim 3 : key   dimension
-        attention = F.softmax( attention , dim=-1)
-
-        # apply dropout to the Attention and compute output
-        attention = self.dropout( attention)
-        output    = torch.matmul( attention , value )
-
-        # output has size ( bs, nh, sl, dk )
-        # we concatenate along head dimension to reshape it to ( bs, sl, dk*nh )
-        # and apply a linear transformation
-        output   = output.transpose(1,2).contiguous()
-        output   = output.view( bs, sl , dm )
-        output   = self.output_map( output )
-
-        return output # size: (batch_size, seq_len, self.n_units)
-        """
 
     def forward(self, query, key, value, mask=None):
         # TODO: implement the masked multi-head attention.
@@ -545,12 +563,20 @@ class MultiHeadedAttention(nn.Module):
         H_concat = H.view((batch_size, seq_len, self.n_units))
         return self.W_O(H_concat) # size: (batch_size, seq_len, self.n_units)
 
+    def softmax(self, x, s):
+        # subtract from max for numerical stability
+        #x_tilde = torch.einsum('bhsq,bsq->bhsq', torch.exp( x - x.max(-1, keepdim=True) ), s)
+        s = s.unsqueeze(1)
+        x_tilde = torch.exp( x - x.max(-1, keepdim=True) ).masked_fill(s == 0, -1e9)
+        return torch.div(x_tilde, x_tilde.sum(-1, keepdim=True))
+
     def softmax_stable(self, x, s):
         # more numerical stable
         #x_tilde = torch.add( torch.einsum('bhsq,bsq->bhsq', x , s) , -1e9 * (1-s) )
         s = s.unsqueeze(1)
         x_tilde = x.masked_fill(s == 0, -1e9)
         return nn.functional.softmax(x_tilde, dim=-1)
+
 #----------------------------------------------------------------------------------
 # The encodings of elements of the input sequence
 
@@ -592,9 +618,6 @@ class PositionalEncoding(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    """
-    This will be called on the TransformerBlock (below) to create a stack.
-    """
     def __init__(self, size, self_attn, feed_forward, dropout):
         super(TransformerBlock, self).__init__()
         self.size = size
@@ -608,7 +631,10 @@ class TransformerBlock(nn.Module):
 
 
 class TransformerStack(nn.Module):
-    def __init__(self, layer, n_blocks): # layer will be TransformerBlock (above)
+    """
+    This will be called on the TransformerBlock (above) to create a stack.
+    """
+    def __init__(self, layer, n_blocks): # layer will be TransformerBlock (below)
         super(TransformerStack, self).__init__()
         self.layers = clones(layer, n_blocks)
         self.norm = LayerNorm(layer.size)
@@ -630,9 +656,9 @@ class FullTransformer(nn.Module):
         embeddings = self.embedding(input_sequence)
         return F.log_softmax(self.output_layer(self.transformer_stack(embeddings, mask)), dim=-1)
 
-# originaly n_heads=16
+
 def make_model(vocab_size, n_blocks=6,
-               n_units=512, n_heads=8, dropout=0.1):
+               n_units=512, n_heads=16, dropout=0.1):
     "Helper: Construct a model from hyperparameters."
     c = copy.deepcopy
     attn = MultiHeadedAttention(n_heads, n_units)
