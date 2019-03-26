@@ -7,6 +7,8 @@ models_coop_old2.py
 note_perso.txt
 # Misc.ipynb
 __pycache__
+GRU_SGD_LR_SCHEDULE_0
+
 *.pt
 !save/TRANSFORMER_SGD_LR_SCHEDULE_model=TRANSFORMER_optimizer=SGD_LR_SCHEDULE_initial_lr=20_batch_size=64_seq_len=35_hidden_size=512_num_layers=6_dp_keep_prob=0.9_save_best_3
 save/TRANSFORMER_SGD_LR_SCHEDULE_model=TRANSFORMER_optimizer=SGD_LR_SCHEDULE_initial_lr=20_batch_size=64_seq_len=35_hidden_size=512_num_layers=6_dp_keep_prob=0.9_save_best_3/best_params.pt
